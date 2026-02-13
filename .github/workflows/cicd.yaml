@@ -120,3 +120,33 @@ jobs:
         context: .
         push: true
         tags: abhi00shek/bankapp:latest
+        file: ./Dockerfile
+
+  deploy_to_kubernetes:
+    runs-on: self-hosted
+    needs: buils_docker_image_and_push
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    - name: Install AWS CLI
+      run: |
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: latest
+    - name: Configure kubeconfig
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.EKS_KUBECONFIG }}" > $HOME/.kube/config
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f ds.yml
