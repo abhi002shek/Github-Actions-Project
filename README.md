@@ -1,537 +1,330 @@
-# 🚀 Complete CI/CD Pipeline with GitHub Actions, Docker & AWS EKS
+# CI/CD Pipeline — Java Spring Boot to AWS EKS
 
-A fully automated CI/CD pipeline that deploys a Java Spring Boot banking application to AWS EKS (Kubernetes) using GitHub Actions, Docker, and Terraform.
-
-## 📋 Table of Contents
-- [Architecture Overview](#architecture-overview)
-- [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Setup Instructions](#setup-instructions)
-- [Pipeline Stages](#pipeline-stages)
-- [Deployment Guide](#deployment-guide)
-- [Troubleshooting](#troubleshooting)
-- [Cost Optimization](#cost-optimization)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?logo=github-actions&logoColor=white)
+![AWS EKS](https://img.shields.io/badge/AWS-EKS-FF9900?logo=amazon-aws&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Containerization-2496ED?logo=docker&logoColor=white)
+![SonarQube](https://img.shields.io/badge/SonarQube-Quality_Gate-4E9BCD?logo=sonarqube&logoColor=white)
+![Trivy](https://img.shields.io/badge/Trivy-Security_Scan-1904DA)
 
 ---
 
-## 🏗️ Architecture Overview
+## Overview
+
+A fully automated, security-hardened CI/CD pipeline that takes a Java Spring Boot banking application from commit to production on AWS EKS — with zero manual steps.
+
+Pipeline enforces quality and security gates at every stage: static code analysis via SonarQube, filesystem vulnerability scanning via Trivy, and secret detection via Gitleaks — all before a single line ships to Kubernetes.
+
+**Key engineering decisions:**
+- Self-hosted GitHub Actions runner on EC2 — full control over build environment and no shared runner limitations
+- Immutable Docker image tags (SHA-based) — no `latest` tag, every build is traceable
+- Security gates that block the pipeline on critical findings — security is not optional
+- EKS infrastructure provisioned entirely via Terraform — zero ClickOps
+
+---
+
+## Architecture
 
 ```
-Developer Push → GitHub → GitHub Actions (Self-Hosted Runner)
-                              ↓
-                    ┌─────────┴─────────┐
-                    │   CI/CD Pipeline   │
-                    │  1. Compile        │
-                    │  2. Security Scan  │
-                    │  3. Test           │
-                    │  4. Build & QA     │
-                    │  5. Docker Build   │
-                    │  6. Deploy to EKS  │
-                    └─────────┬─────────┘
-                              ↓
-                    AWS EKS Cluster (3 nodes)
-                              ↓
-                    Application Running on Kubernetes
-```
-
----
-
-## 🛠️ Tech Stack
-
-### CI/CD & DevOps Tools
-- **GitHub Actions** - CI/CD orchestration
-- **Self-Hosted Runner** - Custom build environment
-- **Docker** - Containerization
-- **Docker Hub** - Container registry
-- **Terraform** - Infrastructure as Code
-- **kubectl** - Kubernetes CLI
-
-### Security & Quality
-- **SonarQube** - Code quality analysis
-- **Trivy** - Filesystem vulnerability scanning
-- **Gitleaks** - Secret detection
-
-### Cloud & Infrastructure
-- **AWS EKS** - Managed Kubernetes service
-- **AWS VPC** - Network isolation
-- **AWS EC2** - Worker nodes
-- **AWS IAM** - Access management
-
-### Application Stack
-- **Java 17** - Programming language
-- **Spring Boot** - Application framework
-- **Maven** - Build tool
-- **MySQL** - Database
-
----
-
-## ✅ Prerequisites
-
-### 1. AWS Account
-- Active AWS account with billing enabled
-- IAM user with admin permissions
-- AWS CLI configured
-
-### 2. GitHub Account
-- GitHub repository
-- Personal Access Token (PAT)
-
-### 3. Docker Hub Account
-- Docker Hub username
-- Access token
-
-### 4. Local Tools
-```bash
-# Install AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-
-# Install Terraform
-wget https://releases.hashicorp.com/terraform/1.10.3/terraform_1.10.3_linux_amd64.zip
-unzip terraform_1.10.3_linux_amd64.zip
-sudo mv terraform /usr/local/bin/
-
-# Install kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
+Developer Push
+      │
+      ▼
+┌─────────────────┐
+│   GitHub         │  Webhook trigger on push to main
+└────────┬────────┘
+         │
+┌────────▼────────────────────────────────┐
+│   GitHub Actions (Self-Hosted EC2 Runner) │
+│                                          │
+│  ┌──────────┐  Job 1: Compile            │
+│  │  Maven   │  Java 17, Spring Boot      │
+│  └──────────┘                            │
+│  ┌──────────┐  Job 2: Security Check     │
+│  │  Trivy   │  Filesystem CVE scan        │
+│  │ Gitleaks │  Secret detection           │
+│  └──────────┘                            │
+│  ┌──────────┐  Job 3: Test               │
+│  │  Maven   │  Unit + integration tests  │
+│  └──────────┘                            │
+│  ┌──────────┐  Job 4: Build + QA         │
+│  │SonarQube │  Static analysis           │
+│  │          │  Quality gate enforcement  │
+│  └──────────┘                            │
+│  ┌──────────┐  Job 5: Docker Build       │
+│  │  Docker  │  Multi-stage image build   │
+│  │  Hub/ECR │  Push with SHA tag         │
+│  └──────────┘                            │
+│  ┌──────────┐  Job 6: Deploy             │
+│  │  Helm /  │  Rolling deploy to EKS     │
+│  │ kubectl  │  Health verification       │
+│  └──────────┘                            │
+└─────────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────────┐
+│         AWS EKS Cluster                │
+│  ┌──────────────────────────────────┐  │
+│  │  Spring Boot Banking App         │  │
+│  │  3 nodes · ALB · Auto Scaling    │  │
+│  └──────────────────────────────────┘  │
+└────────────────────────────────────────┘
 ```
 
 ---
 
-## 📁 Project Structure
+## Tech Stack
+
+| Category | Tools |
+|----------|-------|
+| **CI/CD** | GitHub Actions, Self-Hosted Runner |
+| **Security** | Trivy (CVE scanning), Gitleaks (secret detection), SonarQube (SAST) |
+| **Build** | Java 17, Spring Boot, Maven |
+| **Containers** | Docker (multi-stage builds), Docker Hub |
+| **Orchestration** | Kubernetes / AWS EKS, Helm, kubectl |
+| **IaC** | Terraform (VPC, EKS, EC2, IAM) |
+| **Cloud** | AWS — EKS, EC2, VPC, IAM, ALB, EBS |
+| **Database** | MySQL with persistent volumes |
+
+---
+
+## Pipeline Stages — Detail
+
+### Job 1: Compile
+- Checkout source code
+- Set up JDK 17
+- Compile with Maven — fails fast on compilation errors before any compute is wasted
+
+### Job 2: Security Check
+- **Trivy** filesystem scan — detects CVEs in dependencies and OS packages
+- **Gitleaks** — scans entire commit history for accidentally committed secrets
+- Pipeline blocks on critical/high findings — security is a hard gate, not advisory
+
+### Job 3: Test
+- Maven unit and integration test suite
+- Test reports generated and uploaded as artifacts
+
+### Job 4: Build + SonarQube Analysis
+- Full Maven build producing deployable JAR
+- SonarQube static code analysis — code smells, bugs, security hotspots
+- Quality gate enforcement — pipeline fails if gate is not passed
+- JAR artifact uploaded for next stage
+
+### Job 5: Docker Build + Push
+- Download JAR artifact from previous stage
+- Multi-stage Docker build — minimal final image
+- Push to registry with SHA-based immutable tag — no `latest` drift
+- Image tag propagated to deployment stage
+
+### Job 6: Deploy to EKS
+- Configure AWS credentials via GitHub Secrets
+- Update kubeconfig for target cluster
+- Rolling deployment to Kubernetes — `maxUnavailable: 0`, `maxSurge: 1`
+- Health check verification post-deploy
+
+---
+
+## Repository Structure
 
 ```
 Github-Actions-Project/
 ├── .github/
 │   └── workflows/
-│       └── cicd.yaml              # Main CI/CD pipeline
-├── terraform-eks/                 # EKS infrastructure code
-│   ├── main.tf                    # Main Terraform configuration
+│       └── cicd.yaml              # Full CI/CD pipeline definition
+├── terraform-eks/                 # EKS infrastructure as code
+│   ├── main.tf                    # VPC, EKS cluster, node groups
 │   ├── variables.tf               # Input variables
-│   ├── output.tf                  # Output values
-│   └── README.md                  # Terraform documentation
-├── src/                           # Java application source
-├── Dockerfile                     # Container image definition
-├── ds.yml                         # Kubernetes deployment manifest
-├── pom.xml                        # Maven configuration
-└── README.md                      # This file
+│   ├── output.tf                  # Cluster endpoint, kubeconfig outputs
+│   └── README.md                  # Terraform usage documentation
+├── src/                           # Java Spring Boot application source
+├── Dockerfile                     # Multi-stage container image definition
+├── ds.yml                         # Kubernetes deployment + service manifest
+├── pom.xml                        # Maven build configuration
+└── sonar-project.properties       # SonarQube project configuration
 ```
 
 ---
 
-## 🚀 Setup Instructions
+## Infrastructure — Terraform
 
-### Step 1: Fork/Clone Repository
+EKS cluster and all supporting AWS infrastructure provisioned via Terraform.
 
-```bash
-git clone https://github.com/abhi002shek/Github-Actions-Project.git
-cd Github-Actions-Project
-```
-
-### Step 2: Configure AWS Credentials
-
-```bash
-aws configure
-# Enter:
-# - AWS Access Key ID
-# - AWS Secret Access Key
-# - Default region: ap-south-1
-# - Default output format: json
-```
-
-### Step 3: Create EKS Cluster with Terraform
+**What's provisioned:**
+- Custom VPC with public/private subnets
+- EKS cluster with managed node group (3x EC2 nodes)
+- IAM roles and policies scoped to least-privilege
+- Application Load Balancer for external traffic
+- Security groups with controlled ingress/egress
 
 ```bash
 cd terraform-eks
 
-# Initialize Terraform
 terraform init
-
-# Review the plan
 terraform plan
-
-# Create infrastructure (takes 10-15 minutes)
 terraform apply -auto-approve
 
 # Configure kubectl
-aws eks update-kubeconfig --name devopsshack-cluster --region ap-south-1
+aws eks update-kubeconfig --name <cluster-name> --region ap-south-1
 
-# Verify cluster
+# Verify
 kubectl get nodes
 ```
 
-### Step 4: Set Up Self-Hosted GitHub Runner
+---
 
-**Launch EC2 Instance:**
+## Setup
+
+### Prerequisites
+- AWS account with IAM credentials configured
+- GitHub repository with Actions enabled
+- Docker Hub account (or ECR)
+- SonarQube instance (self-hosted or SonarCloud)
+
+### GitHub Secrets Required
+
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS IAM access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS IAM secret key |
+| `DOCKERHUB_TOKEN` | Docker Hub access token |
+| `SONAR_TOKEN` | SonarQube authentication token |
+
+### GitHub Variables Required
+
+| Variable | Description |
+|----------|-------------|
+| `DOCKERHUB_USERNAME` | Docker Hub username |
+| `SONAR_HOST_URL` | SonarQube server URL |
+
+### Self-Hosted Runner Setup
+
 ```bash
-# Create EC2 instance (Ubuntu 22.04, t2.medium)
-aws ec2 run-instances \
-  --image-id ami-0dee22c13ea7a9a67 \
-  --instance-type t2.medium \
-  --key-name your-key-name \
-  --security-group-ids sg-xxxxx \
-  --subnet-id subnet-xxxxx \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=github-runner}]'
-```
+# Launch EC2 instance (Ubuntu 22.04, t2.medium)
+# SSH into instance, then:
 
-**Install Runner:**
-```bash
-# SSH into the instance
-ssh -i your-key.pem ubuntu@<instance-ip>
-
-# Download and configure runner
-mkdir actions-runner && cd actions-runner
-curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz
-tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
-
-# Configure (get token from GitHub repo Settings → Actions → Runners)
-./config.sh --url https://github.com/YOUR_USERNAME/Github-Actions-Project --token YOUR_TOKEN
-
-# Start runner
-./run.sh
-```
-
-**Install Required Tools on Runner:**
-```bash
 # Install Docker
-sudo apt update
-sudo apt install -y docker.io
+sudo apt update && sudo apt install -y docker.io
 sudo usermod -aG docker ubuntu
 sudo systemctl restart docker
 
 # Install kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
 # Install AWS CLI
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
+unzip awscliv2.zip && sudo ./aws/install
 
-# Configure AWS
-aws configure
-```
-
-### Step 5: Configure GitHub Secrets
-
-Go to: `Settings → Secrets and variables → Actions`
-
-**Add Secrets:**
-- `AWS_ACCESS_KEY_ID` - Your AWS access key
-- `AWS_SECRET_ACCESS_KEY` - Your AWS secret key
-- `DOCKERHUB_TOKEN` - Docker Hub access token
-- `SONAR_TOKEN` - SonarQube token
-
-**Add Variables:**
-- `DOCKERHUB_USERNAME` - Your Docker Hub username
-- `SONAR_HOST_URL` - SonarQube server URL
-
-### Step 6: Deploy Application
-
-```bash
-# Push code to trigger pipeline
-git add .
-git commit -m "Initial deployment"
-git push origin main
-
-# Monitor pipeline in GitHub Actions tab
-```
-
----
-
-## 🔄 Pipeline Stages
-
-### 1. **Compile** (Job 1)
-```yaml
-- Checkout code
-- Set up JDK 17
-- Compile with Maven
-```
-
-### 2. **Security Check** (Job 2)
-```yaml
-- Install Trivy
-- Scan filesystem for vulnerabilities
-- Install Gitleaks
-- Scan for secrets in code
-```
-
-### 3. **Test** (Job 3)
-```yaml
-- Run unit tests
-- Generate test reports
-```
-
-### 4. **Build & SonarQube Scan** (Job 4)
-```yaml
-- Build JAR with Maven
-- Upload artifact
-- Run SonarQube analysis
-- Check quality gate
-```
-
-### 5. **Docker Build & Push** (Job 5)
-```yaml
-- Download JAR artifact
-- Build Docker image
-- Push to Docker Hub
-```
-
-### 6. **Deploy to EKS** (Job 6)
-```yaml
-- Configure AWS credentials
-- Update kubeconfig
-- Deploy to Kubernetes
-```
-
----
-
-## 📦 Deployment Guide
-
-### Manual Deployment to EKS
-
-```bash
-# 1. Configure kubectl
-aws eks update-kubeconfig --name devopsshack-cluster --region ap-south-1
-
-# 2. Verify cluster access
-kubectl get nodes
-
-# 3. Deploy application
-kubectl apply -f ds.yml
-
-# 4. Check deployment status
-kubectl get deployments
-kubectl get pods
-kubectl get services
-
-# 5. Get application URL
-kubectl get svc bankapp-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-```
-
-### Access Application
-
-```bash
-# Get Load Balancer URL
-LOAD_BALANCER=$(kubectl get svc bankapp-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-
-# Access application
-curl http://$LOAD_BALANCER:8080
-
-# Or open in browser
-echo "http://$LOAD_BALANCER:8080"
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Issue 1: Pipeline Fails - "kubectl: command not found"
-
-**Solution:**
-```bash
-# SSH into runner
-ssh -i your-key.pem ubuntu@runner-ip
-
-# Install kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-
-# Verify
-kubectl version --client
-```
-
-### Issue 2: Docker Permission Denied
-
-**Solution:**
-```bash
-# Add user to docker group
-sudo usermod -aG docker ubuntu
-
-# Restart runner
-cd ~/actions-runner
-pkill -f Runner.Listener
+# Register runner (get token from repo Settings → Actions → Runners)
+mkdir actions-runner && cd actions-runner
+curl -o actions-runner-linux-x64-2.311.0.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
+./config.sh --url https://github.com/<your-username>/Github-Actions-Project --token <YOUR_TOKEN>
 ./run.sh
 ```
 
-### Issue 3: AWS CLI Installation Fails
-
-**Solution:**
-```bash
-# Use --update flag
-sudo ./aws/install --update
-```
-
-### Issue 4: EKS Cluster Not Accessible
-
-**Solution:**
-```bash
-# Update kubeconfig
-aws eks update-kubeconfig --name devopsshack-cluster --region ap-south-1
-
-# Verify
-kubectl get nodes
-```
-
-### Issue 5: Pods Not Starting
-
-**Solution:**
-```bash
-# Check pod logs
-kubectl logs <pod-name>
-
-# Describe pod for events
-kubectl describe pod <pod-name>
-
-# Check if image is pulled
-kubectl get pods -o wide
-```
-
 ---
 
-## 💰 Cost Optimization
+## Deploy
 
-### Destroy Resources After Testing
-
+### Trigger Pipeline
 ```bash
-# 1. Delete Kubernetes resources
-kubectl delete -f ds.yml
-
-# 2. Destroy EKS cluster
-cd terraform-eks
-terraform destroy -auto-approve
-
-# 3. Verify deletion
-aws eks list-clusters --region ap-south-1
-aws ec2 describe-vpcs --region ap-south-1 --filters 'Name=is-default,Values=false'
-
-# 4. Stop/Terminate EC2 instances
-aws ec2 stop-instances --instance-ids i-xxxxx
-# or
-aws ec2 terminate-instances --instance-ids i-xxxxx
+git add .
+git commit -m "feat: your change description"
+git push origin main
+# Pipeline triggers automatically via webhook
 ```
 
-### Estimated Costs (ap-south-1 region)
-
-| Resource | Type | Cost/Hour | Cost/Month |
-|----------|------|-----------|------------|
-| EKS Cluster | Control Plane | $0.10 | ~$73 |
-| EC2 Nodes | 3x t2.medium | $0.15 | ~$108 |
-| Load Balancer | Classic ELB | $0.025 | ~$18 |
-| **Total** | | **~$0.275/hr** | **~$199/month** |
-
-**💡 Tip:** Destroy resources when not in use to avoid charges!
-
----
-
-## 📊 Monitoring & Logs
-
-### View Pipeline Logs
+### Manual Deployment
 ```bash
-# GitHub Actions UI
-https://github.com/YOUR_USERNAME/Github-Actions-Project/actions
-```
-
-### View Application Logs
-```bash
-# Get pod name
+aws eks update-kubeconfig --name <cluster-name> --region ap-south-1
+kubectl apply -f ds.yml
+kubectl get deployments
 kubectl get pods
-
-# View logs
-kubectl logs <pod-name>
-
-# Follow logs
-kubectl logs -f <pod-name>
+kubectl get svc bankapp-service
 ```
 
-### View Cluster Events
+### Get Application URL
 ```bash
+kubectl get svc bankapp-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+---
+
+## Troubleshooting
+
+**kubectl not found on runner**
+```bash
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+kubectl version --client
+```
+
+**Docker permission denied on runner**
+```bash
+sudo usermod -aG docker ubuntu
+# Restart runner process
+```
+
+**Pods not starting**
+```bash
+kubectl describe pod <pod-name>
+kubectl logs <pod-name>
 kubectl get events --sort-by='.lastTimestamp'
 ```
 
----
+**EKS cluster not accessible**
+```bash
+aws eks update-kubeconfig --name <cluster-name> --region ap-south-1
+kubectl get nodes
+```
 
-## 🔐 Security Best Practices
-
-1. **Never commit secrets** - Use GitHub Secrets
-2. **Use IAM roles** - Instead of access keys when possible
-3. **Enable MFA** - On AWS root account
-4. **Scan for vulnerabilities** - Trivy & Gitleaks in pipeline
-5. **Use private subnets** - For production workloads
-6. **Enable encryption** - For EBS volumes and secrets
-7. **Regular updates** - Keep dependencies updated
-
----
-
-## 📚 Additional Resources
-
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [AWS EKS Documentation](https://docs.aws.amazon.com/eks/)
-- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
-- [Docker Documentation](https://docs.docker.com/)
+**SonarQube quality gate failing**
+```bash
+# Check analysis results in SonarQube UI
+# Review sonar-project.properties for correct project key
+```
 
 ---
 
-## 🤝 Contributing
+## Cost Awareness
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+| Resource | Type | Approx. Cost |
+|----------|------|-------------|
+| EKS Control Plane | Managed | ~$73/month |
+| EC2 Worker Nodes | 3x t2.medium | ~$108/month |
+| ALB | Load Balancer | ~$18/month |
+| EC2 Runner | t2.medium | ~$30/month |
 
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👤 Author
-
-**Abhishek**
-- GitHub: [@abhi002shek](https://github.com/abhi002shek)
-- LinkedIn: [Connect with me](https://linkedin.com/in/yourprofile)
+**Destroy when not in use:**
+```bash
+kubectl delete -f ds.yml
+cd terraform-eks && terraform destroy -auto-approve
+aws ec2 terminate-instances --instance-ids <runner-instance-id>
+```
 
 ---
 
-## 🙏 Acknowledgments
+## Security Practices
 
-- AWS for EKS service
-- GitHub for Actions platform
-- HashiCorp for Terraform
-- Open source community
-
----
-
-## 📞 Support
-
-If you have questions or need help:
-1. Check [Troubleshooting](#troubleshooting) section
-2. Open an [Issue](https://github.com/abhi002shek/Github-Actions-Project/issues)
-3. Review [GitHub Discussions](https://github.com/abhi002shek/Github-Actions-Project/discussions)
+- All secrets stored in GitHub Secrets — never in code or env files
+- IAM credentials scoped to minimum required permissions
+- Trivy blocks pipeline on critical CVEs before image is pushed
+- Gitleaks scans entire commit history on every run
+- SonarQube quality gate enforced — code doesn't ship with critical bugs
+- Private subnets for worker nodes — only ALB is internet-facing
+- EBS volumes encrypted at rest
 
 ---
 
-**⭐ If this project helped you, please give it a star!**
+## Author
+
+**Abhishek Singh** — DevOps Engineer · SRE · Platform Engineer
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://linkedin.com/in/abhishek-singh-2b96961a0)
+[![Portfolio](https://img.shields.io/badge/Portfolio-000000?style=flat&logo=vercel&logoColor=white)](https://portfolio-abhi002sheks-projects.vercel.app)
+[![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat&logo=github&logoColor=white)](https://github.com/abhi002shek)
 
 ---
 
-## 🎯 Project Highlights
-
-- ✅ Complete CI/CD automation
-- ✅ Security scanning integrated
-- ✅ Infrastructure as Code
-- ✅ Container orchestration
-- ✅ Production-ready setup
-- ✅ Cost-optimized architecture
-- ✅ Comprehensive documentation
-
-**Built with ❤️ by Abhishek**
+*📍 Hyderabad, India · Open to DevOps / SRE / Cloud / Platform Engineer roles*
